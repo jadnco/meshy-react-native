@@ -1,5 +1,7 @@
 ![meshy logo](logo.png)
 
+`meshy-react-native`
+
 All-in-one solution to create peer-to-peer and full-mesh topology in the browser via WebRTC & WebSockets.
 
 ### Features
