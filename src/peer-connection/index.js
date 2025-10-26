@@ -189,7 +189,7 @@ class PeerConnection {
   };
 
   _onNegotiationNeeded = () => {
-    this._connection].createOffer()
+    this._connection.createOffer()
       .then((offer) => {
         const parsed = sdp.parse(offer.sdp);
         const audio = parsed.media.filter((m) => m.type === 'audio');
