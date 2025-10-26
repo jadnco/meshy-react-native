@@ -1,10 +1,10 @@
-import {
-  RTCPeerConnection,
-  RTCIceCandidate,
-  RTCSessionDescription,
-} from 'react-native-webrtc';
-import DataChannel from './data-channel';
-import { SocketEvents } from './constants';
+import { RTCPeerConnection, RTCIceCandidate, RTCSessionDescription } from 'react-native-webrtc';
+import get from 'lodash/get';
+import last from 'lodash/last';
+import sdp from 'sdp-transform';
+
+import DataChannel from '../data-channel';
+import { SocketEvents } from '../constants';
 
 class PeerConnection {
   constructor(clientId, socket, config, callbacks) {
@@ -95,6 +95,7 @@ class PeerConnection {
       const callbacks = {
         onmessage: (ch, data) => this._onDataMessage(ch, data),
       };
+
       this._dataChannels[label] = new DataChannel(
         label,
         this._connection,
@@ -161,20 +162,59 @@ class PeerConnection {
 
   _onTrack = (event) => {
     const stream = event.streams[0];
+    const remoteDescription = get(event, ['target', 'remoteDescription']);
+    const parsed = sdp.parse(remoteDescription.sdp);
+    const audio = parsed.media.filter((m) => m.type === 'audio');
+    const media = last(audio);
+    const uri = get(last(media.ext), 'uri');
+    const trackId = uri.split('/track/').pop();
+
     if (this._callbacks && this._callbacks.onAddTrack) {
-      this._callbacks.onAddTrack({ peerId: this.clientId, stream });
+      this._callbacks.onAddTrack({
+        clientId: this.clientId,
+        trackId,
+        stream
+      });
     }
 
     if (this._callbacks && this._callbacks.onRemoveTrack) {
-      stream.onremovetrack = (track) => {
-        this._callbacks.onRemoveTrack({ peerId: this.clientId, track, stream });
+      stream.onremovetrack = () => {
+        this._callbacks.onRemoveTrack({
+          clientId: this.clientId,
+          trackId,
+          stream
+        });
       };
     }
   };
 
   _onNegotiationNeeded = () => {
-    this._connection
-      .createOffer()
+    this._connection].createOffer()
+      .then((offer) => {
+        const parsed = sdp.parse(offer.sdp);
+        const audio = parsed.media.filter((m) => m.type === 'audio');
+        const media = last(audio);
+
+        if (this._nextTrackId && media.ext) {
+
+          /**
+           * WebRTC doesn't have any way to consistently
+           * identify tracks between a sender and receiver,
+           * so we have to modify the sdp and embed our own identifier.
+           *
+           * See: https://www.kevinmoreland.com/articles/03-22-20-webrtc-mediastream-tracks
+           */
+          media.ext.push({
+            value: media.ext.length + 1,
+            uri: `meshy/track/${this._nextTrackId}`
+          });
+        }
+
+        // eslint-disable-next-line
+        offer.sdp = sdp.write(parsed);
+
+        return offer;
+      })
       .then((offer) => this._connection.setLocalDescription(offer))
       .then(() => {
         this._socket.emit(SocketEvents.PEER_MEDIA_OFFER, {
